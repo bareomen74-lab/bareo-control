@@ -218,6 +218,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if (wc) for (const r of readTable(wc).rows) state.cartera.push({
       'ID': txt(r['ID']), 'Fecha': toDate(r['FECHA']), 'Tipo': txt(r['TIPO']), 'Monto': num(r['MONTO']),
       'Orden ID': digits(r['ORDEN ID']), 'Guía': digits(r['GUÍA']), 'Descripción': txt(r['DESCRIPCIÓN']), 'Concepto retiro': txt(r['CONCEPTO RETIRO']) });
+    // lista anterior de "Dropi por revisar" (se conserva si esta vez no se cargan reportes de órdenes)
+    const wr0 = wb.getWorksheet('Dropi por revisar');
+    state.revisarPrev = [];
+    if (wr0) for (const r of readTable(wr0).rows) {
+      const id = txt(r['ID DROPI']); if (!id || !/^\d+$/.test(id)) continue;
+      state.revisarPrev.push({ o: { id, fecha: toDate(r['FECHA']), cliente: txt(r['CLIENTE']), ciudad: txt(r['CIUDAD']), estado: txt(r['ESTADO DROPI']), guia: txt(r['GUÍA']), precio: num(r['PRECIO']) }, motivo: txt(r['MOTIVO']) });
+    }
     const wf = wb.getWorksheet('Finanzas');
     if (wf) { const m = txt(wf.getCell('A2').value).match(/(\d{2})\/(\d{2})\/(\d{4})/); if (m) state.hasta = new Date(Date.UTC(+m[3], +m[2] - 1, +m[1])); }
     const cf = wb.getWorksheet('Config');
@@ -842,7 +849,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     stampLocal(state, opts.today || new Date());
     const fechasOrd = [...orders.values()].map(o => o.fecha).filter(Boolean);
     const hasta = fechasOrd.length ? new Date(Math.max(...fechasOrd)) : (state.hasta || null);
-    const wb = write(ExcelJS, state, { revisar: st.revisar, hasta, today: opts.today });
+    const revisar = ordRows.length ? st.revisar : (state.revisarPrev || []);
+    const wb = write(ExcelJS, state, { revisar, hasta, today: opts.today });
     const buffer = await wb.xlsx.writeBuffer();
     return { buffer, kinds, stats: { ...st, revisar: st.revisar.length, total: state.pedidos.length } };
   }
