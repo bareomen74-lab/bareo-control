@@ -110,7 +110,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const LABEL = { 'Flete': 'Envío', 'Fecha pago Dropi': 'Fecha de pago' }; // nombre que se ve en el Excel
   const label = n => LABEL[n] || n;
   const AUTO = ['ID Dropi', 'Guía', 'Transportadora', 'Canal', 'Estado', 'Último movimiento', 'Valor recibido Dropi', 'Costo devolución', 'Recaudo neto', 'Estado de pago', 'Costo producto', 'Ganancia real'];
-  const MOV = [['Fecha', 11, 'date'], ['Tipo', 10], ['Categoría', 18], ['Descripción', 36], ['Monto', 13, 'money'], ['Cuenta', 13], ['Cuenta destino', 14], ['Nota', 30]];
+  const MOV = [['Fecha', 11, 'date'], ['Tipo', 10], ['Categoría', 18], ['Descripción', 36], ['Monto', 13, 'money'], ['Cuenta', 13], ['Cuenta destino', 14], ['Nota', 30], ['Ya en cartera Dropi', 12]];
   const CART = [['ID', 11], ['Fecha', 16, 'datetime'], ['Tipo', 9], ['Monto', 13, 'money'], ['Orden ID', 11], ['Guía', 15], ['Descripción', 70], ['Concepto retiro', 24]];
   const TIPOS = ['Gasto', 'Ingreso', 'Traslado'];
   const CATS = ['Publicidad', 'Inventario', 'Empaque', 'Envíos', 'Obsequios', 'Software / apps', 'Bodega / arriendo', 'Equipamiento', 'Sueldos', 'Comisiones bancarias', 'Otros gastos', 'Venta directa', 'Retiro Dropi', 'Aporte de socio', 'Retiro personal', 'Otros ingresos'];
@@ -425,6 +425,22 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
   }
 
+  // Movimientos con cuenta Dropi: se marcan "SÍ" cuando la cartera ya trae una salida/entrada del mismo valor
+  // (±7 días). Los que no están marcados se restan/suman aparte al saldo de Dropi.
+  function marcarEnCartera(state) {
+    const usados = new Set();
+    for (const m of state.movimientos) {
+      const dropi = m['Cuenta'] === 'Dropi' || m['Cuenta destino'] === 'Dropi';
+      if (!dropi) { m['Ya en cartera Dropi'] = ''; continue; }
+      const sale = m['Cuenta'] === 'Dropi' && m['Tipo'] !== 'Ingreso';
+      const hit = state.cartera.find(k => !usados.has(k['ID']) && k['Tipo'] === (sale ? 'SALIDA' : 'ENTRADA')
+        && Math.abs((k['Monto'] || 0) - (m['Monto'] || 0)) < 1 && m['Fecha'] && k['Fecha'] && Math.abs(day(k['Fecha']) - day(m['Fecha'])) <= 7 * 864e5);
+      if (hit) { usados.add(hit['ID']); m['Ya en cartera Dropi'] = 'SÍ'; }
+      else if (m['Fecha'] && state.cartera.length && day(m['Fecha']) < Math.min(...state.cartera.map(k => day(k['Fecha']) || Infinity))) m['Ya en cartera Dropi'] = 'ANTES';
+      else m['Ya en cartera Dropi'] = '';
+    }
+  }
+
   // ---------- escribir ----------
   const FONT = { name: 'Arial', size: 10 };
   const fill = argb => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
@@ -644,13 +660,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       ['Efectivo', saldoCuenta('Efectivo', 9), 'Saldo de Config + ventas en efectivo − gastos en efectivo'],
       // cartera + lo que anotes en Movimientos con cuenta Dropi DESPUÉS del último movimiento de cartera cargado
       // (cuando cargues un historial nuevo que ya lo incluya, deja de contarse aparte para no restarlo dos veces)
-      ['Dropi (cartera)', (() => { const lc = `MAX(${CR('Fecha')})`, fe = `${MR('Fecha')},">"&${lc}`;
+      ['Dropi (cartera)', (() => { const fe = `${MR('Ya en cartera Dropi')},"<>SÍ",${MR('Ya en cartera Dropi')},"<>ANTES"`;
         return `=SUMIFS(${CR('Monto')},${CR('Tipo')},"ENTRADA")-SUMIFS(${CR('Monto')},${CR('Tipo')},"SALIDA")`
           + `+SUMIFS(${MR('Monto')},${MR('Cuenta')},"Dropi",${MR('Tipo')},"Ingreso",${fe})`
           + `-SUMIFS(${MR('Monto')},${MR('Cuenta')},"Dropi",${MR('Tipo')},"Gasto",${fe})`
           + `-SUMIFS(${MR('Monto')},${MR('Cuenta')},"Dropi",${MR('Tipo')},"Traslado",${fe})`
           + `+SUMIFS(${MR('Monto')},${MR('Cuenta destino')},"Dropi",${MR('Tipo')},"Traslado",${fe})`; })(),
-        'Historial de cartera + movimientos de Dropi anotados después de la última cartera cargada'],
+        'Historial de cartera + pagos desde Dropi que anotaste y la cartera todavía no muestra'],
     ];
     acct.forEach(([n, f, note], i) => {
       const r = 5 + i;
@@ -859,6 +875,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       state.cartera = [...known.values()];
     }
     st.pagados = applyCartera(state);
+    marcarEnCartera(state);
     stampLocal(state, opts.today || new Date());
     const fechasOrd = [...orders.values()].map(o => o.fecha).filter(Boolean);
     const hasta = fechasOrd.length ? new Date(Math.max(...fechasOrd)) : (state.hasta || null);
