@@ -341,7 +341,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const unmatched = [];
     for (const o of pending) {
       const d = day(o.fecha);
-      const cand = ped.filter(p => !p['ID Dropi'] && p['Fecha'] && Math.abs(day(p['Fecha']) - d) <= 5 * 864e5 && sameName(p['Cliente'], o.cliente)
+      // también: pedido que volviste a crear en Dropi (nuevo ID con guía) → reemplaza al viejo que quedó pendiente sin guía
+      const recreado = p => o.guia && p['ID Dropi'] && !p['Guía'] && ['PENDIENTE', 'SIN CONFIRMAR', ''].includes(p['Estado'] || '');
+      const cand = ped.filter(p => (!p['ID Dropi'] || recreado(p)) && p['Fecha'] && Math.abs(day(p['Fecha']) - d) <= 5 * 864e5 && sameName(p['Cliente'], o.cliente)
         && (!p['Guía'] || !o.guia));
       if (cand.length) {
         cand.sort((a, b) => Math.abs(day(a['Fecha']) - d) - Math.abs(day(b['Fecha']) - d));
@@ -852,7 +854,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     stampLocal(state, opts.today || new Date());
     const fechasOrd = [...orders.values()].map(o => o.fecha).filter(Boolean);
     const hasta = fechasOrd.length ? new Date(Math.max(...fechasOrd)) : (state.hasta || null);
-    const revisar = ordRows.length ? st.revisar : (state.revisarPrev || []);
+    const PAGO_SIN = 'Dropi te pagó este pedido, pero no está en Pedidos';
+    let revisar = (ordRows.length ? st.revisar : (state.revisarPrev || [])).filter(x => !x.motivo.startsWith(PAGO_SIN));
+    // pagos de la cartera cuyo pedido no está en el control (ej. pedido recreado con otro ID que no vino en el reporte)
+    const conID = new Set(state.pedidos.map(p => p['ID Dropi']).filter(Boolean));
+    const sinPedido = new Map();
+    for (const m of state.cartera) {
+      const id = m['Orden ID'];
+      if (!id || conID.has(id) || m['Tipo'] !== 'ENTRADA' || !/GANANCIA EN LA ORDEN/i.test(m['Descripción'])) continue;
+      const x = sinPedido.get(id) || { id, fecha: m['Fecha'], guia: m['Guía'], v: 0 };
+      x.v += m['Monto'] || 0; sinPedido.set(id, x);
+    }
+    for (const x of sinPedido.values()) revisar.push({ o: { id: x.id, fecha: x.fecha, cliente: '', ciudad: '', estado: 'PAGADO', guia: x.guia, precio: Math.round(x.v) },
+      motivo: PAGO_SIN + ' (falta en el reporte de órdenes: descárgalo con fecha de creado más amplia). Valor = lo recibido.' });
+    st.pagoSinPedido = sinPedido.size;
     const wb = write(ExcelJS, state, { revisar, hasta, today: opts.today });
     const buffer = await wb.xlsx.writeBuffer();
     return { buffer, kinds, stats: { ...st, revisar: st.revisar.length, total: state.pedidos.length } };
