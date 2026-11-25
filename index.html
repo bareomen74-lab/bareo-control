@@ -324,6 +324,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         p['Guía'] = o.guia; p['Transportadora'] = o.transp; p['Canal'] = 'DROPI';
         p['Precio'] = o.precio; p['Flete'] = o.flete;
         if (!p['Forma de pago']) p['Forma de pago'] = o.pago;
+      } else if (p['Canal'] === 'DROPI' && o.precio) {
+        // pedido de Dropi aún sin guía: si cambiaste el precio en Dropi, se actualiza aquí también
+        p['Precio'] = o.precio; if (o.flete) p['Flete'] = o.flete;
       }
       st.actualizados++;
     }
