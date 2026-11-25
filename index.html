@@ -642,7 +642,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const acct = [
       ['Bancolombia (incluye Nequi)', saldoCuenta('Bancolombia', 8), 'Saldo de Config + ventas de Medellín y por transferencia + abonos − gastos'],
       ['Efectivo', saldoCuenta('Efectivo', 9), 'Saldo de Config + ventas en efectivo − gastos en efectivo'],
-      ['Dropi (cartera)', `=SUMIFS(${CR('Monto')},${CR('Tipo')},"ENTRADA")-SUMIFS(${CR('Monto')},${CR('Tipo')},"SALIDA")`, 'Según el último historial de cartera cargado'],
+      // cartera + lo que anotes en Movimientos con cuenta Dropi DESPUÉS del último movimiento de cartera cargado
+      // (cuando cargues un historial nuevo que ya lo incluya, deja de contarse aparte para no restarlo dos veces)
+      ['Dropi (cartera)', (() => { const lc = `MAX(${CR('Fecha')})`, fe = `${MR('Fecha')},">"&${lc}`;
+        return `=SUMIFS(${CR('Monto')},${CR('Tipo')},"ENTRADA")-SUMIFS(${CR('Monto')},${CR('Tipo')},"SALIDA")`
+          + `+SUMIFS(${MR('Monto')},${MR('Cuenta')},"Dropi",${MR('Tipo')},"Ingreso",${fe})`
+          + `-SUMIFS(${MR('Monto')},${MR('Cuenta')},"Dropi",${MR('Tipo')},"Gasto",${fe})`
+          + `-SUMIFS(${MR('Monto')},${MR('Cuenta')},"Dropi",${MR('Tipo')},"Traslado",${fe})`
+          + `+SUMIFS(${MR('Monto')},${MR('Cuenta destino')},"Dropi",${MR('Tipo')},"Traslado",${fe})`; })(),
+        'Historial de cartera + movimientos de Dropi anotados después de la última cartera cargada'],
     ];
     acct.forEach(([n, f, note], i) => {
       const r = 5 + i;
